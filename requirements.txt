@@ -1,0 +1,6 @@
+torch
+numpy
+datasets
+tokenizers
+tqdm
+pyyaml
