@@ -1,0 +1,27 @@
+{
+  "tokenizer": "bpe",
+  "vocab_size": 8192,
+  "eos_id": 8191,
+  "dtype": "uint16",
+  "byte_order": "little",
+  "splits": {
+    "train": {
+      "documents": 19657,
+      "text_tokens": 23282236,
+      "tokens_with_eos": 23301893,
+      "file": "train.bin"
+    },
+    "validation": {
+      "documents": 1115,
+      "text_tokens": 1228407,
+      "tokens_with_eos": 1229522,
+      "file": "validation.bin"
+    },
+    "test": {
+      "documents": 1034,
+      "text_tokens": 1253054,
+      "tokens_with_eos": 1254088,
+      "file": "test.bin"
+    }
+  }
+}
