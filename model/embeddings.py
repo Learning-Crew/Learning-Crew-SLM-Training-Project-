@@ -1,4 +1,3 @@
-"""GPT-style token and learned absolute position embeddings."""
 
 import torch
 from torch import nn
