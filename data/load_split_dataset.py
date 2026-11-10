@@ -38,9 +38,11 @@ def load_fineweb(config: PretrainDatasetConfig):
 
         for split in SPLIT_RATIOS:
             path = ouput_path / f"{split}.json"
-            outputs[split] = stack.enter_context(
+            out = stack.enter_context(
                 path.open("w", encoding=config.encoding_type)
             )
+            out.write("[\n")
+            outputs[split] = out
 
         for document in dataset:
             row = {
@@ -83,6 +85,9 @@ def load_fineweb(config: PretrainDatasetConfig):
 
             if total_bytes >= config.target_bytes:
                 break
+
+        for out in outputs.values():
+            out.write("\n]\n")
 
     print(f"finish load dataset: {total_bytes / 1024**3:.2f} GiB")
     print(f"split counts: {counts}")

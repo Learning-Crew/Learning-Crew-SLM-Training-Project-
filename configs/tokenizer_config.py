@@ -14,6 +14,7 @@ class PretrainDatasetConfig:
 @dataclass
 class TokenizerConfig:
     vocab_size: int = 32768
+    base_vocab_size: int = 256
     
     pad_token: str = "[PAD]"
     bos_token: str = "[BOS]"
