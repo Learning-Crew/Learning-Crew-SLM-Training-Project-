@@ -1,7 +1,6 @@
 import json
 import re
 import heapq
-import ijson
 
 from array import array
 from pathlib import Path
@@ -14,12 +13,15 @@ from data.download_dataset import load_data
 OUTPUT_DIR = Path(__file__).resolve().parent
 PRETOKEN_PATTERN = re.compile(r"\s*\S+|\s+")
 
+# 통합 하이퍼파라미터 사용 변수
+dataset_config = PretrainDatasetConfig()
+
 def load_pretokens() -> Counter:
     train_data = load_data("train")
     pretoken_counts = Counter()
     document_count = 0
     total_bytes = 0
-    encoding_type = PretrainDatasetConfig().encoding_type
+    encoding_type = dataset_config.encoding_type
 
     print("Loading entire training dataset...", flush=True)
 
@@ -259,10 +261,10 @@ def train_bpe(config: TokenizerConfig):
     vocab_path = OUTPUT_DIR / "vocab.json"
     merges_path = OUTPUT_DIR / "merges.json"
 
-    with vocab_path.open("w", encoding="utf-8") as f:
+    with vocab_path.open("w", encoding=dataset_config.encoding_type) as f:
         json.dump(vocab_data, f, ensure_ascii=False)
 
-    with merges_path.open("w", encoding="utf-8") as f:
+    with merges_path.open("w", encoding=dataset_config.encoding_type) as f:
         json.dump(merges, f)
 
     print("\nBPE Training Completed!")

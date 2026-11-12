@@ -6,10 +6,12 @@ from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 from huggingface_hub.errors import EntryNotFoundError
+from configs.tokenizer_config import PretrainDatasetConfig
 
 DATA_DIR = Path(__file__).resolve().parent
 REPO_ID = "jsuhong24/Learning-Crew-Dataset"
 
+config = PretrainDatasetConfig()
 
 def load_data(split: str) -> list:
     """
@@ -41,7 +43,7 @@ def load_data(split: str) -> list:
                 f"Hugging Face 저장소에 '{filename}' 파일이 없습니다."
             ) from e
         
-    with file_path.open("r", encoding="utf-8") as f:
+    with file_path.open("r", encoding=config.encoding_type) as f:
         data = json.load(f)
 
     if not isinstance(data, list):
