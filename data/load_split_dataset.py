@@ -11,16 +11,16 @@ from datasets import load_dataset
 from configs.tokenizer_config import PretrainDatasetConfig
 
 
-SPLIT_RATIOS = {
-    "train": 0.90,
-    "valid": 0.05,
-    "test": 0.05,
-}
-
-
 def load_fineweb(config: PretrainDatasetConfig):
     # 진행도 표시 & 주석 추가 필요
     # 전처리 데이터 공유 불가 (용량문제) > Hugging Face 업로드
+
+    split_ratios = {
+        "train": config.split_ratios[0],
+        "valid": config.split_ratios[1],
+        "test": config.split_ratios[2],
+    }
+
     dataset = load_dataset(
         config.dataset_name,
         name=config.subset,
@@ -31,12 +31,12 @@ def load_fineweb(config: PretrainDatasetConfig):
     ouput_path = Path(__file__).resolve().parent
     total_bytes = 0
     seen_hashes = set()
-    counts = { split: 0 for split in SPLIT_RATIOS }
+    counts = { split: 0 for split in split_ratios }
 
     with ExitStack() as stack:
         outputs = {}
 
-        for split in SPLIT_RATIOS:
+        for split in split_ratios:
             path = ouput_path / f"{split}.json"
             out = stack.enter_context(
                 path.open("w", encoding=config.encoding_type)
@@ -70,7 +70,7 @@ def load_fineweb(config: PretrainDatasetConfig):
             seen_hashes.add(text_hash)
             row["text"] = text
 
-            split = assign_split(text_hash)
+            split = assign_split(text_hash, split_ratios)
             out = outputs[split]
 
             if counts[split] > 0:
@@ -105,11 +105,11 @@ def clean_text(text: str) -> str:
     return text
 
 
-def assign_split(text_hash: bytes) -> str:
+def assign_split(text_hash: bytes, split_ratios: dict[str, float]) -> str:
     cumulative = 0    
     bucket = int.from_bytes(text_hash[:8], "big") % 10000
 
-    for split, ratio in SPLIT_RATIOS.items():
+    for split, ratio in split_ratios.items():
         cumulative += ratio
 
         if bucket < round(cumulative * 10000):
