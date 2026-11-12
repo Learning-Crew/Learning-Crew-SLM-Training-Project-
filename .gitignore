@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Hydra 실험 결과
+/outputs/
+/multirun/
+
+# 로컬 테스트
+/tests/
