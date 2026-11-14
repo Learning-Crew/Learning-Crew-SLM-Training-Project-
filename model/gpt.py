@@ -19,15 +19,17 @@ class GPTModel(nn.Module):
     max_seq_len must be retained alongside ModelConfig in checkpoints.
     """
 
-    def __init__(self, config: ModelConfig, *, max_seq_len: int):
+    def __init__(self, config: ModelConfig, *, max_seq_len: int | None = None):
         super().__init__()
         self.config = replace(config)
-        self.max_seq_len = max_seq_len
-        self.embedding = GPTEmbedding(self.config, max_seq_len=max_seq_len)
+        self.max_seq_len = max_seq_len if max_seq_len is not None else getattr(config, "max_seq_len", 1024)
+        if hasattr(self.config, "max_seq_len"):
+            self.config.max_seq_len = self.max_seq_len
+        self.embedding = GPTEmbedding(self.config, max_seq_len=self.max_seq_len)
         self.blocks = nn.ModuleList(
             TransformerBlock(self.config) for _ in range(self.config.num_layers)
         )
-        self.final_norm = nn.LayerNorm(self.config.hidden_size, eps=1e-5)
+        self.final_norm = nn.LayerNorm(self.config.hidden_size, eps=getattr(self.config, "norm_eps", 1e-5))
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         hidden_states = self.embedding(input_ids)
