@@ -24,15 +24,15 @@ if __name__ == "__main__":
 
     # 테스트용 입력 토큰과 정답 토큰
     dataset = [
-        {
-            "input_ids": torch.tensor([1, 2, 3, 4]),
-            "labels": torch.tensor([2, 3, 4, 5])
-        },
-        {
-            "input_ids": torch.tensor([3, 4, 5, 6]),
-            "labels": torch.tensor([4, 5, 6, 7])
-        }
-    ]
+    (
+        torch.tensor([1, 2, 3, 4]),
+        torch.tensor([2, 3, 4, 5])
+    ),
+    (
+        torch.tensor([3, 4, 5, 6]),
+        torch.tensor([4, 5, 6, 7])
+    )
+]
 
     # 배치 크기를 2로 설정
     dataloader = DataLoader(dataset, batch_size=1)

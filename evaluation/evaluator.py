@@ -16,13 +16,14 @@ def evaluate(
 
     with torch.no_grad():
         for batch in dataloader:
-            input_ids = batch["input_ids"].to(device)
-            labels = batch["labels"].to(device)
+            input_ids, targets = batch
+            input_ids = input_ids.to(device)
+            targets = targets.to(device)
 
             logits = model(input_ids)
            
             # 유효 토큰 수 계산
-            valid_mask = (labels != -100)
+            valid_mask = (targets != -100)
             num_tokens = valid_mask.sum().item()
 
             # 유효 토큰이 없는 배치는 건너뛰기
@@ -30,8 +31,8 @@ def evaluate(
                 continue
 
             # 현재 배치의 Loss와 Accuracy 계산
-            loss = cross_entropy_loss(logits, labels)
-            accuracy = token_accuracy(logits, labels)
+            loss = cross_entropy_loss(logits, targets)
+            accuracy = token_accuracy(logits, targets)
 
             # 전체 Loss와 유효 토큰 수 누적
             total_loss += loss.item() * num_tokens
