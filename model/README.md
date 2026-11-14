@@ -61,3 +61,10 @@ python -m unittest discover -s tests -v
 ```
 
 작은 데이터 학습 검증은 연산 연결을 확인하기 위한 것이며 실제 언어 성능의 증거가 아닙니다.
+
+## 최신 공통 설정 연동
+
+`GPTModel(config)`는 공통 설정의 `max_seq_len`, `intermediate_size`,
+`norm_eps`를 사용합니다. 기존의 명시적 `max_seq_len` 인자도 지원하며,
+지정하면 체크포인트 설정에도 그 값을 기록합니다.
+현재 main의 학습 루프는 아직 없으므로 실제 학습 파이프라인 검증은 별도입니다.
