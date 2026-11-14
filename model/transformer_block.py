@@ -10,13 +10,14 @@ from model.attention import CausalSelfAttention
 
 
 class FeedForward(nn.Module):
-    """Apply H -> 4H -> H independently at each token position."""
+    """Apply H -> intermediate_size -> H independently at each token position."""
 
     def __init__(self, config: ModelConfig):
         super().__init__()
-        self.fc = nn.Linear(config.hidden_size, 4 * config.hidden_size)
+        intermediate_size = getattr(config, "intermediate_size", 4 * config.hidden_size)
+        self.fc = nn.Linear(config.hidden_size, intermediate_size)
         self.activation = nn.GELU(approximate="tanh")
-        self.proj = nn.Linear(4 * config.hidden_size, config.hidden_size)
+        self.proj = nn.Linear(intermediate_size, config.hidden_size)
         for layer in (self.fc, self.proj):
             nn.init.normal_(layer.weight, mean=0.0, std=0.02)
             nn.init.zeros_(layer.bias)
@@ -37,9 +38,9 @@ class TransformerBlock(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.ln_1 = nn.LayerNorm(config.hidden_size, eps=1e-5)
+        self.ln_1 = nn.LayerNorm(config.hidden_size, eps=getattr(config, "norm_eps", 1e-5))
         self.attention = CausalSelfAttention(config)
-        self.ln_2 = nn.LayerNorm(config.hidden_size, eps=1e-5)
+        self.ln_2 = nn.LayerNorm(config.hidden_size, eps=getattr(config, "norm_eps", 1e-5))
         self.ffn = FeedForward(config)
         # 블록을 여러 개 쌓을 때 잔차 가지의 초기 출력 크기를 줄인다.
         residual_std = 0.02 / math.sqrt(2 * config.num_layers)
