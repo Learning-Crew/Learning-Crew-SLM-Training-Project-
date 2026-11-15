@@ -10,10 +10,9 @@ from collections import Counter, defaultdict
 from configs.tokenizer_config import TokenizerConfig, PretrainDatasetConfig
 from data.download_dataset import load_data
 
-OUTPUT_DIR = Path(__file__).resolve().parent
+# 공백 체크 정규식
 PRETOKEN_PATTERN = re.compile(r"\s*\S+|\s+")
 
-# 통합 하이퍼파라미터 사용 변수
 dataset_config = PretrainDatasetConfig()
 
 def load_pretokens() -> Counter:
@@ -29,12 +28,12 @@ def load_pretokens() -> Counter:
         text = document.get("text")
 
         pretokens = (
-            match.group(0).encode(encoding_type)
-            for match in PRETOKEN_PATTERN.finditer(text)
+            # 정규식에 따른 텍스트 분리 > byte 변환
+            match.group(0).encode(encoding_type) for match in PRETOKEN_PATTERN.finditer(text)
         )
 
+        # 중복 텍스트 제거
         pretoken_counts.update(pretokens)
-
         document_count += 1
         total_bytes += len(text.encode(encoding_type))
 
@@ -48,9 +47,7 @@ def load_pretokens() -> Counter:
     return pretoken_counts
 
 def get_pair_counts(tokens) -> Counter:
-    return Counter(
-        zip(tokens, islice(tokens, 1, None))
-    )
+    return Counter(zip(tokens, islice(tokens, 1, None)))
 
 def merge_pair(
     tokens,
@@ -84,9 +81,7 @@ def train_bpe(config: TokenizerConfig):
         config.cls_token,
     )
 
-    max_merges = (
-        config.vocab_size - config.base_vocab_size - len(special_tokens)
-    )
+    max_merges = (config.vocab_size - config.base_vocab_size - len(special_tokens))
 
     if max_merges < 0:
         raise ValueError("Vocabulary size is too small.")        
@@ -96,10 +91,7 @@ def train_bpe(config: TokenizerConfig):
 
     pretoken_counts = load_pretokens()
 
-    vocab = [
-        bytes([i])
-        for i in range(config.base_vocab_size)
-    ]
+    vocab = [bytes([i]) for i in range(config.base_vocab_size)]
 
     words = list(pretoken_counts.keys())
     frequencies = list(pretoken_counts.values())
@@ -107,7 +99,6 @@ def train_bpe(config: TokenizerConfig):
     del pretoken_counts
 
     pair_freq = Counter()
-
     pair_words = defaultdict(set)
 
     print("Building pair frequencies...", flush=True)
@@ -116,17 +107,10 @@ def train_bpe(config: TokenizerConfig):
         local_counts = get_pair_counts(tokens)
 
         for pair, count in local_counts.items():
-            pair_freq[pair] += (
-                count * frequencies[word_id]
-            )
-
+            pair_freq[pair] += ( count * frequencies[word_id] )
             pair_words[pair].add(word_id)
 
-    # 빈도가 높은 Pair부터 선택하는 Heap
-    heap = [
-        (-freq, pair)
-        for pair, freq in pair_freq.items()
-    ]
+    heap = [(-freq, pair) for pair, freq in pair_freq.items()]
 
     heapq.heapify(heap)
 
@@ -134,10 +118,8 @@ def train_bpe(config: TokenizerConfig):
 
     print("Training BPE...", flush=True)
 
-    # BPE Merge 반복
     for step in range(max_merges):
 
-        # 유효한 최고 빈도 Pair 선택
         while heap:
             neg_freq, best_pair = heapq.heappop(heap)
 
@@ -149,18 +131,10 @@ def train_bpe(config: TokenizerConfig):
             )
 
         new_id = len(vocab)
-
-        # 새로운 Vocabulary 토큰 생성
-        vocab.append(
-            vocab[best_pair[0]]
-            + vocab[best_pair[1]]
-        )
-
+        vocab.append(vocab[best_pair[0]] + vocab[best_pair[1]])
         merges.append(best_pair)
 
-        # 병합 대상이 포함된 Pre-token만 갱신
         affected_words = pair_words.pop(best_pair)
-
         pair_freq.pop(best_pair)
         changed_pairs = set()
 
@@ -186,10 +160,7 @@ def train_bpe(config: TokenizerConfig):
                 old_count = old_counts[pair]
                 new_count = new_counts[pair]
 
-                # Pair Frequency 증감
-                delta = (
-                    new_count - old_count
-                ) * frequency
+                delta = (new_count - old_count) * frequency
 
                 if delta != 0:
                     updated = pair_freq.get(pair, 0) + delta
@@ -201,7 +172,6 @@ def train_bpe(config: TokenizerConfig):
 
                     changed_pairs.add(pair)
 
-                # Pair 역색인 갱신
                 if old_count > 0 and new_count == 0:
                     pair_words[pair].discard(word_id)
 
@@ -213,28 +183,19 @@ def train_bpe(config: TokenizerConfig):
 
             words[word_id] = new_tokens
 
-        # 변경된 Pair만 Heap에 추가
         for pair in changed_pairs:
             freq = pair_freq.get(pair, 0)
 
             if freq > 0:
                 heapq.heappush(heap, (-freq, pair))
 
-        # 오래된 Heap 항목 정리
         if len(heap) > 4 * max(len(pair_freq), 1):
-            heap = [
-                (-freq, pair)
-                for pair, freq in pair_freq.items()
-            ]
+            heap = [(-freq, pair) for pair, freq in pair_freq.items()]
             heapq.heapify(heap)
 
         if (step + 1) % 500 == 0:
-            print(
-                f"Merges: {step + 1:,}/{max_merges:,}",
-                flush=True
-            )
+            print(f"Merges: {step + 1:,}/{max_merges:,}", flush=True)
 
-    # 7. 특수 토큰 ID 할당
     special_token_ids = {}
 
     for token in special_tokens:
@@ -243,9 +204,6 @@ def train_bpe(config: TokenizerConfig):
 
     if len(vocab) != config.vocab_size:
         raise RuntimeError("Vocabulary size mismatch.")
-
-    # 8. Vocabulary 및 Merge 규칙 저장
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     vocab_data = {
         "vocab_size": config.vocab_size,
@@ -258,20 +216,17 @@ def train_bpe(config: TokenizerConfig):
         "special_tokens": special_token_ids,
     }
 
-    vocab_path = OUTPUT_DIR / "vocab.json"
-    merges_path = OUTPUT_DIR / "merges.json"
+    with open(config.vocab_path, "w", encoding=dataset_config.encoding_type) as f:
+        json.dump(vocab_data, f, ensure_ascii=False, indent=4)
 
-    with vocab_path.open("w", encoding=dataset_config.encoding_type) as f:
-        json.dump(vocab_data, f, ensure_ascii=False)
-
-    with merges_path.open("w", encoding=dataset_config.encoding_type) as f:
-        json.dump(merges, f)
+    with open(config.merges_path, "w", encoding=dataset_config.encoding_type) as f:
+        json.dump(merges, f, indent=4)
 
     print("\nBPE Training Completed!")
     print(f"Vocabulary size: {len(vocab):,}")
     print(f"Total merges: {len(merges):,}")
-    print(f"Vocabulary: {vocab_path}")
-    print(f"Merges: {merges_path}")
+    print(f"Vocabulary: {config.vocab_path}")
+    print(f"Merges: {config.merges_path}")
 
 
 if __name__ == "__main__":

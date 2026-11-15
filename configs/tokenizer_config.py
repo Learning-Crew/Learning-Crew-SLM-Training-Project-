@@ -41,10 +41,15 @@ class PretrainDatasetConfig:
         # 부동소수점 계산 오차를 고려하여 1e-9 이하의 차이는 허용
         if abs(sum(self.split_ratios) - 1.0) > 1e-9:
             raise ValueError("분할 비율의 합계는 1이어야 합니다.")
+
+        
 @dataclass
 class TokenizerConfig:
     vocab_size: int = 32768
     base_vocab_size: int = 256
+
+    vocab_path = "tokenizer/vocab.json"
+    merges_path = "tokenizer/merges.json"
     
     pad_token: str = "[PAD]"
     bos_token: str = "[BOS]"
