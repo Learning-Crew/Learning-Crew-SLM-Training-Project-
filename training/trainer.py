@@ -1,12 +1,13 @@
 import logging
 from dataclasses import asdict
 from pathlib import Path
+from math import cos, pi
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import Dataset
 
 from configs.model_config import ModelConfig
@@ -66,8 +67,40 @@ def train(
 
     model.to(device)  #체크포인트는 CPU로 읽고 실제 학습은 지정한 장치에서 실행
     model.train()
-    optimizer = AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
-    scheduler = CosineAnnealingLR(optimizer, T_max=config.max_steps)
+    optimizer = AdamW(
+        model.parameters(), lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+        betas=config.adam_betas,
+        eps=config.adam_eps,
+        )
+    # Warmup + Cosine Learning Rate Scheduler 구현!
+    def lr_lambda(step: int) -> float:
+        warmup = min(config.warmup_steps, config.max_steps)
+
+        # 1. Warmup: 학습률을 점진적으로 증가
+        if warmup > 0 and step < warmup:
+            return (step + 1) / warmup
+
+        # 2. Cosine Decay: 학습률을 점진적으로 감소
+        decay_steps = max(1, config.max_steps - warmup)
+
+        progress = min(
+            1.0,
+            max(0.0, (step - warmup) / decay_steps)
+        )
+
+        min_ratio = config.min_lr / config.learning_rate
+
+        cosine = 0.5 * (1.0 + cos(pi * progress))
+
+        return min_ratio + (1.0 - min_ratio) * cosine
+
+
+    scheduler = LambdaLR(
+        optimizer,
+        lr_lambda=lr_lambda
+    )
+
     if state is not None:
         #모델, 옵티마이저, 스케줄러 상태와 dropout 등에 쓰이는 난수 상태 복원
         model.load_state_dict(state["model"])
@@ -97,12 +130,17 @@ def train(
             #배치와 시퀀스 차원을 합쳐 토큰마다 정답과 비교
             loss = F.cross_entropy(logits.flatten(0, 1), targets.flatten())
             loss.backward()
+            # Gradient 크기가 너무 커지지 않도록 제한
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(),
+                max_norm=config.max_grad_norm
+            )
             learning_rate = optimizer.param_groups[0]["lr"]  #이번 업데이트에 사용한 학습률을 기록
             optimizer.step()
             scheduler.step()
             global_step += 1
-
-            logger.info("step=%d loss=%.9g lr=%.9g", global_step, loss.item(), learning_rate)
+            if global_step % config.log_every == 0 or global_step == config.max_steps:
+                logger.info("step=%d loss=%.9g lr=%.9g", global_step, loss.item(), learning_rate)
             if global_step % config.checkpoint_every == 0 or global_step == config.max_steps:
                 #다음에 읽을 배치 위치 저장. epoch 끝이면 다음 epoch의 첫 배치
                 saved_epoch, saved_batch = divmod(global_step, batches_per_epoch)
