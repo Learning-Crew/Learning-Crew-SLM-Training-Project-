@@ -28,6 +28,7 @@ class TrainingConfig:
     batch_size: int = 8
     max_steps: int = 10000
     weight_decay: float = 0.1
+    seed: int = 42
 
     # Optimizer 설정
     adam_betas: tuple[float, float] = (0.9, 0.95)
@@ -44,10 +45,9 @@ class TrainingConfig:
 
     # GPU 설정
     mixed_precision: str = "bf16"
-    seed: int = 42
 
     # 체크포인트 및 로그 설정
-    checkpoint_every: int = 1000
+    checkpoint_every: int = 500 #이건 학습을 해보고 얼마나 저장되는지 봐야할 것 같아요!
     log_every: int = 100
 
     def __post_init__(self):
@@ -75,9 +75,6 @@ class TrainingConfig:
             raise ValueError("해당 학습 설정값은 0 이상이어야 합니다.")
 
         # 설정값 간 관계 검사
-        if self.warmup_steps >= self.max_steps:
-            raise ValueError("warmup_steps는 max_steps보다 작아야 합니다.")
-
         if self.min_lr > self.learning_rate:
             raise ValueError("min_lr은 learning_rate보다 클 수 없습니다.")
 
@@ -90,3 +87,6 @@ class TrainingConfig:
             raise ValueError(
                 "mixed_precision은 no, fp16, bf16 중 하나여야 합니다."
             )
+
+        if self.seed < 0 or self.seed + self.max_steps > 2**64:
+            raise ValueError("epoch별 시드는 uint64 범위 안에 있어야 합니다.")

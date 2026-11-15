@@ -1,0 +1,38 @@
+#11월10일에 교수님이 언급하셨던 Hydra를 이용해보았습니다!
+#Hydra 설정 파일입니다!
+
+model:
+  vocab_size: 16
+  hidden_size: 16
+  num_layers: 1
+  num_heads: 1
+
+training:
+  learning_rate: 0.0003
+  weight_decay: 0.1
+  batch_size: 8
+  seed: 42
+  checkpoint_every: 500
+  max_steps: null  #합성 데이터는 20스텝, 팀 데이터는 기본 한 epoch
+
+device: cpu
+factory: null  #팀 모델과 train, validation Dataset을 만드는 함수 경로 -> 하이퍼파라미터 탐색시에만 사용!!! (pretrain이 목적이기에 최종 학습에는 모두 학습할 수 있도록 해야해요!)
+data: {}
+subset: false  #자동으로 1.5%(교수님께서 1% ~ 2%를 보통 사용한다고 하셨습니다!), 단일 실행에서 재현할 때 true
+resume_from: null
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${now:%Y-%m-%d/%H-%M-%S-%f}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d/%H-%M-%S-%f}
+    subdir: ${hydra.job.num}
+  sweeper:
+    params:
+      training.learning_rate: '0.0001,0.0003,0.001'
+      training.weight_decay: '0.01,0.1'
+  callbacks:
+    summary:
+      _target_: training.run.SweepSummary
