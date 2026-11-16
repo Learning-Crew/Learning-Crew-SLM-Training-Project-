@@ -20,6 +20,7 @@ class PretrainDatasetConfig:
 
     # 데이터 수집 및 전처리 설정
     target_bytes: int = 2 * 1024 ** 3    # 2GB
+    chunk_bytes: int  = 15 * 1024 ** 3  # 15GB
     min_chars: int = 100
     max_chars: int = 100_000
 
@@ -55,3 +56,7 @@ class TokenizerConfig:
     bos_token: str = "[BOS]"
     eos_token: str = "[EOS]"
     cls_token: str = "[CLS]"
+
+@dataclass
+class PickyConfig:
+    ios_threshold: float = 0.8 
