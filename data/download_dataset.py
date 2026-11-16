@@ -11,15 +11,19 @@ from configs.tokenizer_config import PretrainDatasetConfig
 DATA_DIR = Path(__file__).resolve().parent
 REPO_ID = "jsuhong24/Learning-Crew-Dataset"
 
-config = PretrainDatasetConfig()
-
-def load_data(split: str) -> list:
+def load_data(
+    split: str,
+    config: PretrainDatasetConfig | None = None,
+) -> list:
     """
     data 폴더에 JSON 파일이 없으면 Hugging Face에서 다운로드합니다.
 
     Args:
-        split: "train", "valid", "Test"
+        split: "train", "valid", "test"
     """
+    if config is None:
+        config = PretrainDatasetConfig()
+
     if not isinstance(split, str) or not split:
         raise ValueError("split은 비어 있지 않은 문자열이어야 합니다.")
 

@@ -1,6 +1,24 @@
 #11월10일에 교수님이 언급하셨던 Hydra를 이용해보았습니다! (지호님이 작성)
 #Hydra 설정 파일입니다!
+dataset:
+  dataset_name: HuggingFaceFW/fineweb-edu
+  subset: sample-10BT
+  encoding_type: utf-8
+  target_bytes: 2147483648
+  min_chars: 100
+  max_chars: 100000
+  split_ratios: [0.90, 0.05, 0.05]
 
+tokenizer:
+  vocab_size: 32768
+  base_vocab_size: 256
+  vocab_path: tokenizer/vocab.json
+  merges_path: tokenizer/merges.json
+  pad_token: "[PAD]"
+  bos_token: "[BOS]"
+  eos_token: "[EOS]"
+  cls_token: "[CLS]"
+  
 model:
   vocab_size: 32768
   hidden_size: 768

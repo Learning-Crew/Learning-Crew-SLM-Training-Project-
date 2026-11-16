@@ -20,7 +20,10 @@ from torch.utils.data import DataLoader, Dataset, Subset, TensorDataset
 from configs.model_config import ModelConfig
 from configs.training_config import TrainingConfig
 from training.trainer import train
-
+from configs.tokenizer_config import (
+    PretrainDatasetConfig,
+    TokenizerConfig,
+)
 
 logger = logging.getLogger(__name__)
 SUBSET_FRACTION = 0.015
@@ -90,13 +93,22 @@ class SweepSummary(Callback):
         logger.info("최적 조합은 %s에서 확인가능!", sweep_dir / "summary.json")
 
 
-@hydra.main(config_path=".", config_name="experiment")
+@hydra.main(
+    config_path="../configs",
+    config_name="experiment",
+)
 def main(config: DictConfig) -> None:
     hydra_config = HydraConfig.get()
     multirun = hydra_config.mode == RunMode.MULTIRUN
     if multirun and config.resume_from is not None:
         raise ValueError("resume_from은 단일 실행에서만 사용할 수 있습니다.")
+    dataset_config = PretrainDatasetConfig(
+        **OmegaConf.to_container(config.dataset, resolve=True)
+    )
 
+    tokenizer_config = TokenizerConfig(
+        **OmegaConf.to_container(config.tokenizer, resolve=True)
+    )
     model_config = ModelConfig(**OmegaConf.to_container(config.model, resolve=True))
     training_values = OmegaConf.to_container(config.training, resolve=True)
     configured_steps = training_values.pop("max_steps")
@@ -111,7 +123,10 @@ def main(config: DictConfig) -> None:
     else:
         factory = get_method(config.factory)
         model, train_data, validation_data, dataset_id = factory(
-            model_config, **OmegaConf.to_container(config.data, resolve=True)
+            model_config, 
+            dataset_config=dataset_config,
+            tokenizer_config=tokenizer_config,
+            **OmegaConf.to_container(config.data, resolve=True)
         )
 
     use_subset = not smoke and (multirun or config.subset)
