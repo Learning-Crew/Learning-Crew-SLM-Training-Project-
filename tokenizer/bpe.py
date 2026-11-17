@@ -13,10 +13,8 @@ from data.download_dataset import load_data
 # 공백 체크 정규식
 PRETOKEN_PATTERN = re.compile(r"\s*\S+|\s+")
 
-dataset_config = PretrainDatasetConfig()
-
-def load_pretokens() -> Counter:
-    train_data = load_data("train")
+def load_pretokens(dataset_config: PretrainDatasetConfig) -> Counter:
+    train_data = load_data("train",dataset_config)
     pretoken_counts = Counter()
     document_count = 0
     total_bytes = 0
@@ -73,7 +71,10 @@ def merge_pair(
     return result
 
 
-def train_bpe(config: TokenizerConfig):
+def train_bpe(
+    config: TokenizerConfig,
+    dataset_config: PretrainDatasetConfig,
+):
     special_tokens = (
         config.pad_token,
         config.bos_token,
@@ -89,7 +90,7 @@ def train_bpe(config: TokenizerConfig):
     print(f"Vocabulary size: {config.vocab_size:,}")
     print(f"Maximum merges: {max_merges:,}")
 
-    pretoken_counts = load_pretokens()
+    pretoken_counts = load_pretokens(dataset_config)
 
     vocab = [bytes([i]) for i in range(config.base_vocab_size)]
 
@@ -230,5 +231,7 @@ def train_bpe(config: TokenizerConfig):
 
 
 if __name__ == "__main__":
-    config = TokenizerConfig()
-    train_bpe(config)
+    tokenizer_config = TokenizerConfig()
+    dataset_config = PretrainDatasetConfig()
+
+    train_bpe(tokenizer_config, dataset_config)
