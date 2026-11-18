@@ -27,6 +27,8 @@ model:
   max_seq_len: 1024
   intermediate_size: 3072
   norm_eps: 1.0e-5
+  attention_backend: naive  #테스트를 위해 기본값을 naive
+  #실제로 flash_attention을 사용하려면 python -m training.run model.attention_backend=flash_attention_2 device=cuda로 실행하면 됩니다!
 
 training:
   # 기본 학습 설정
@@ -57,7 +59,7 @@ training:
   log_every: 100
 
 
-device: cpu
+device: cpu   #이거 나중에 cuda로 변경해야할 것 같네요!
 factory: null  #팀 모델과 train, validation Dataset을 만드는 함수 경로 -> 하이퍼파라미터 탐색시에만 사용!!! (pretrain이 목적이기에 최종 학습에는 모두 학습할 수 있도록 해야해요!)
 data: {}
 subset: false  #자동으로 1.5%(교수님께서 1% ~ 2%를 보통 사용한다고 하셨습니다!), 단일 실행에서 재현할 때 true

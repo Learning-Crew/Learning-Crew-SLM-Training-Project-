@@ -58,6 +58,47 @@ class AttentionTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.model(torch.zeros(2, 3, 32, dtype=torch.long))
 
+    def test_invalid_attention_backend(self):
+        with self.assertRaises(ValueError):
+            ModelConfig(100, 32, 2, 4, attention_backend="flash")
+
+    def test_flash_attention_requires_cuda(self):
+        #CPU에서는 FA2를 쓸 수 없으니 바로 에러가 나야 해요!
+        model = CausalSelfAttention(ModelConfig(100, 32, 2, 4, attention_backend="flash_attention_2"))
+        with self.assertRaises(RuntimeError):
+            model(torch.randn(2, 5, 32))
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "CUDA GPU가 있어야 FA2 테스트 가능")
+class FlashAttentionTests(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(42)
+        #head_dim 64로 실제 학습 설정과 같은 크기에서 비교
+        self.naive = CausalSelfAttention(ModelConfig(100, 256, 2, 4)).cuda()
+        self.flash = CausalSelfAttention(
+            ModelConfig(100, 256, 2, 4, attention_backend="flash_attention_2")).cuda()
+        self.flash.load_state_dict(self.naive.state_dict())  #같은 가중치에서 계산 방식만 다르게
+
+    def test_matches_naive_output_and_gradient(self):
+        x = torch.randn(2, 128, 256, device="cuda")
+        x_naive = x.clone().requires_grad_()
+        x_flash = x.clone().requires_grad_()
+        out_naive = self.naive(x_naive)
+        out_flash = self.flash(x_flash)
+        #FA2는 bf16으로 계산하니까 오차를 조금 허용
+        torch.testing.assert_close(out_flash, out_naive, atol=2e-2, rtol=2e-2)
+        out_naive.square().mean().backward()
+        out_flash.square().mean().backward()
+        torch.testing.assert_close(x_flash.grad, x_naive.grad, atol=2e-2, rtol=2e-2)
+        torch.testing.assert_close(
+            self.flash.qkv.weight.grad, self.naive.qkv.weight.grad, atol=2e-2, rtol=2e-2)
+
+    def test_future_tokens_cannot_change_prefix(self):
+        x = torch.randn(1, 16, 256, device="cuda")
+        changed = x.clone()
+        changed[:, 10:] = torch.randn(1, 6, 256, device="cuda")  #뒤쪽 토큰만 변경
+        torch.testing.assert_close(self.flash(x)[:, :10], self.flash(changed)[:, :10], rtol=0, atol=0)
+
 
 if __name__ == "__main__":
     unittest.main()

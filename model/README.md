@@ -68,3 +68,11 @@ python -m unittest discover -s tests -v
 `norm_eps`를 사용합니다. 기존의 명시적 `max_seq_len` 인자도 지원하며,
 지정하면 체크포인트 설정에도 그 값을 기록합니다.
 현재 main의 학습 루프는 아직 없으므로 실제 학습 파이프라인 검증은 별도입니다.
+
+## Flash Attention 2
+
+Flash Attention을 사용하려면 아래 명령어로 시작하면 됩니다!
+```bash
+python -m training.run model.attention_backend=flash_attention_2 device=cuda
+```
+Attention을 flash_attention을 사용하고 해당 기법이 그래픽카드에서만 돌아가서 device도 cuda로 설정되도록 하는 명령어입니다!
