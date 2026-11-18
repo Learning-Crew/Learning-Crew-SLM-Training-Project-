@@ -1,0 +1,80 @@
+#11월10일에 교수님이 언급하셨던 Hydra를 이용해보았습니다! (지호님이 작성)
+#Hydra 설정 파일입니다!
+dataset:
+  dataset_name: HuggingFaceFW/fineweb-edu
+  subset: sample-10BT
+  encoding_type: utf-8
+  target_bytes: 2147483648
+  min_chars: 100
+  max_chars: 100000
+  split_ratios: [0.90, 0.05, 0.05]
+
+tokenizer:
+  vocab_size: 32768
+  base_vocab_size: 256
+  vocab_path: tokenizer/vocab.json
+  merges_path: tokenizer/merges.json
+  pad_token: "[PAD]"
+  bos_token: "[BOS]"
+  eos_token: "[EOS]"
+  cls_token: "[CLS]"
+  
+model:
+  vocab_size: 32768
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  max_seq_len: 1024
+  intermediate_size: 3072
+  norm_eps: 1.0e-5
+
+training:
+  # 기본 학습 설정
+  learning_rate: 0.0003
+  batch_size: 8
+  max_steps: null #합성 데이터는 20스텝, 팀 데이터는 기본 한 epoch
+  weight_decay: 0.1
+  seed: 42
+
+  # Optimizer
+  adam_betas: [0.9, 0.95]
+  adam_eps: 1.0e-8
+
+  # Scheduler
+  warmup_steps: 500
+  min_lr: 0.00003
+
+  # Gradient
+  gradient_accumulation_steps: 4
+  max_grad_norm: 1.0
+  gradient_checkpointing: false
+
+  # GPU
+  mixed_precision: bf16
+
+  # Checkpoint 및 Logging
+  checkpoint_every: 500
+  log_every: 100
+
+
+device: cpu
+factory: null  #팀 모델과 train, validation Dataset을 만드는 함수 경로 -> 하이퍼파라미터 탐색시에만 사용!!! (pretrain이 목적이기에 최종 학습에는 모두 학습할 수 있도록 해야해요!)
+data: {}
+subset: false  #자동으로 1.5%(교수님께서 1% ~ 2%를 보통 사용한다고 하셨습니다!), 단일 실행에서 재현할 때 true
+resume_from: null
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${now:%Y-%m-%d/%H-%M-%S-%f}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d/%H-%M-%S-%f}
+    subdir: ${hydra.job.num}
+  sweeper:
+    params:
+      training.learning_rate: '0.0001,0.0003,0.001'
+      training.weight_decay: '0.01,0.1'
+  callbacks:
+    summary:
+      _target_: training.run.SweepSummary

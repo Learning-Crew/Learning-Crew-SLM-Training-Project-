@@ -7,12 +7,23 @@ from functools import lru_cache
 
 from configs.tokenizer_config import TokenizerConfig, PretrainDatasetConfig
 
-config = TokenizerConfig()
-dataset_config = PretrainDatasetConfig()
-
 class BPETokenizer:
 
-    def __init__(self):
+    def __init__(
+        self,
+        config: TokenizerConfig | None = None,
+        dataset_config: PretrainDatasetConfig | None = None,
+    ):
+        self.config = config if config is not None else TokenizerConfig()
+        self.dataset_config = (
+            dataset_config
+            if dataset_config is not None
+            else PretrainDatasetConfig()
+        )
+
+        config = self.config
+        dataset_config = self.dataset_config
+
         with open(config.vocab_path, "r", encoding=dataset_config.encoding_type) as f:
             vocab_data = json.load(f)
 
@@ -99,7 +110,7 @@ class BPETokenizer:
             token_ids.append(self.bos_id)
 
         for match in self.pretoken_pattern.finditer(text):
-            piece = match.group(0).encode(dataset_config.encoding_type)
+            piece = match.group(0).encode(self.dataset_config.encoding_type)
             token_ids.extend(self.encode_piece(piece))
 
         if add_eos:
@@ -121,7 +132,7 @@ class BPETokenizer:
             if token_id in self.id_to_special:
                 if not skip_special_tokens:
                     token = self.id_to_special[token_id]
-                    text_bytes.extend(token.encode(self.encoding_type))
+                    text_bytes.extend(token.encode(self.dataset_config.encoding_type))
 
                 continue
 
@@ -130,7 +141,7 @@ class BPETokenizer:
 
             text_bytes.extend(self.vocab[token_id])
 
-        return text_bytes.decode(dataset_config.encoding_type, errors=errors)
+        return text_bytes.decode(self.dataset_config.encoding_type, errors=errors)
 
 """
 if __name__ == "__main__":

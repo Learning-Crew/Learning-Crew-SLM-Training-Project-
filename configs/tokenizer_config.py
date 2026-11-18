@@ -49,8 +49,8 @@ class TokenizerConfig:
     vocab_size: int = 32768
     base_vocab_size: int = 256
 
-    vocab_path = "tokenizer/vocab.json"
-    merges_path = "tokenizer/merges.json"
+    vocab_path: str = "tokenizer/vocab.json"
+    merges_path: str = "tokenizer/merges.json"
     
     pad_token: str = "[PAD]"
     bos_token: str = "[BOS]"
