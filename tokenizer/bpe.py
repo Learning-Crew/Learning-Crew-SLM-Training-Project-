@@ -6,41 +6,95 @@ from array import array
 from pathlib import Path
 from itertools import islice
 from collections import Counter, defaultdict
+from contextlib import closing
+from random import Random
+from loguru import logger
 
 from configs.tokenizer_config import TokenizerConfig, PretrainDatasetConfig
-from data.download_dataset import load_data
+from data.load_preprocessed_data import load_preprocessed_data
 
 # 공백 체크 정규식
 PRETOKEN_PATTERN = re.compile(r"\s*\S+|\s+")
 
-def load_pretokens(dataset_config: PretrainDatasetConfig) -> Counter:
-    train_data = load_data("train",dataset_config)
+def sample_training_texts(
+    dataset_config: PretrainDatasetConfig,
+    tokenizer_config: TokenizerConfig,
+):
+    limit = tokenizer_config.train_max_bytes
+    generator = Random(tokenizer_config.train_sample_seed)
+    selected = []
+    selected_bytes = 0
+    cutoff = None
+    scanned = 0
+    oversized = 0
+    logger.info(
+        f"Sampling train documents up to {limit / 1024**2:.1f} MiB "
+        f"(seed={tokenizer_config.train_sample_seed}); scanning all train shards...",
+    )
+
+    with closing(load_preprocessed_data("train", dataset_config)) as documents:
+        for document in documents:
+            text = document["text"]
+            if not text.strip():
+                continue
+            scanned += 1
+            if scanned % 100_000 == 0:
+                logger.info(f"Scanned train documents: {scanned:,}")
+            size = len(text.encode(dataset_config.encoding_type))
+            if size > limit:
+                oversized += 1
+                continue
+
+            priority = (generator.getrandbits(128), scanned)
+            if cutoff is not None and priority >= cutoff:
+                continue
+            
+            heapq.heappush(selected, (-priority[0], -priority[1], size, text))
+            selected_bytes += size
+            while selected_bytes > limit:
+                removed = heapq.heappop(selected)
+                selected_bytes -= removed[2]
+                cutoff = (-removed[0], -removed[1])
+
+    logger.info(
+        f"Selected {len(selected):,} / {scanned:,} documents, "
+        f"{selected_bytes / 1024**2:.3f} MiB; oversized skipped: {oversized:,}",
+    )
+    
+    while selected:
+        yield heapq.heappop(selected)[3]
+
+
+def load_pretokens(
+    dataset_config: PretrainDatasetConfig,
+    tokenizer_config: TokenizerConfig,
+) -> Counter:
     pretoken_counts = Counter()
     document_count = 0
     total_bytes = 0
     encoding_type = dataset_config.encoding_type
 
-    print("Loading entire training dataset...", flush=True)
-
-    for document in train_data:
-        text = document.get("text")
-
-        pretokens = (
-            # 정규식에 따른 텍스트 분리 > byte 변환
-            match.group(0).encode(encoding_type) for match in PRETOKEN_PATTERN.finditer(text)
-        )
-
-        # 중복 텍스트 제거
-        pretoken_counts.update(pretokens)
-        document_count += 1
-        total_bytes += len(text.encode(encoding_type))
+    with closing(sample_training_texts(dataset_config, tokenizer_config)) as samples:
+        for text in samples:
+            document_bytes = len(text.encode(encoding_type))
+            pretokens = (
+                # 정규식에 따른 텍스트 분리 > byte 변환
+                match.group(0).encode(encoding_type)
+                for match in PRETOKEN_PATTERN.finditer(text)
+            )
+            # 중복 텍스트 제거
+            pretoken_counts.update(pretokens)
+            document_count += 1
+            total_bytes += document_bytes
 
     if not pretoken_counts:
-        raise ValueError("Training dataset is empty.")
+        raise ValueError("학습할 텍스트가 없습니다. train 파일과 train_max_bytes를 확인하세요.")
 
-    print(f"Total documents: {document_count:,}")
-    print(f"Total bytes: {total_bytes / 1024**3:.3f} GiB")
-    print(f"Unique pretokens: {len(pretoken_counts):,}")
+    logger.info(
+        f"Pretoken counting completed | documents={document_count:,} | "
+        f"size={total_bytes / 1024**3:.3f} GiB | "
+        f"unique_pretokens={len(pretoken_counts):,}"
+    )
 
     return pretoken_counts
 
@@ -87,10 +141,12 @@ def train_bpe(
     if max_merges < 0:
         raise ValueError("Vocabulary size is too small.")        
 
-    print(f"Vocabulary size: {config.vocab_size:,}")
-    print(f"Maximum merges: {max_merges:,}")
+    logger.info(
+        f"BPE configuration | vocab_size={config.vocab_size:,} | "
+        f"max_merges={max_merges:,}"
+    )
 
-    pretoken_counts = load_pretokens(dataset_config)
+    pretoken_counts = load_pretokens(dataset_config, config)
 
     vocab = [bytes([i]) for i in range(config.base_vocab_size)]
 
@@ -102,7 +158,7 @@ def train_bpe(
     pair_freq = Counter()
     pair_words = defaultdict(set)
 
-    print("Building pair frequencies...", flush=True)
+    logger.info("Building pair frequencies...")
 
     for word_id, tokens in enumerate(words):
         local_counts = get_pair_counts(tokens)
@@ -117,7 +173,7 @@ def train_bpe(
 
     merges = []
 
-    print("Training BPE...", flush=True)
+    logger.info("Training BPE...")
 
     for step in range(max_merges):
 
@@ -195,16 +251,13 @@ def train_bpe(
             heapq.heapify(heap)
 
         if (step + 1) % 500 == 0:
-            print(f"Merges: {step + 1:,}/{max_merges:,}", flush=True)
+            logger.info(f"Merges: {step + 1:,}/{max_merges:,}")
 
     special_token_ids = {}
 
     for token in special_tokens:
         special_token_ids[token] = len(vocab)
         vocab.append(None)
-
-    if len(vocab) != config.vocab_size:
-        raise RuntimeError("Vocabulary size mismatch.")
 
     vocab_data = {
         "vocab_size": config.vocab_size,
@@ -217,17 +270,22 @@ def train_bpe(
         "special_tokens": special_token_ids,
     }
 
+    
+    Path(config.vocab_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(config.merges_path).parent.mkdir(parents=True, exist_ok=True)
+
     with open(config.vocab_path, "w", encoding=dataset_config.encoding_type) as f:
         json.dump(vocab_data, f, ensure_ascii=False, indent=4)
 
     with open(config.merges_path, "w", encoding=dataset_config.encoding_type) as f:
         json.dump(merges, f, indent=4)
 
-    print("\nBPE Training Completed!")
-    print(f"Vocabulary size: {len(vocab):,}")
-    print(f"Total merges: {len(merges):,}")
-    print(f"Vocabulary: {config.vocab_path}")
-    print(f"Merges: {config.merges_path}")
+    logger.success(
+        f"BPE training completed | vocab_size={len(vocab):,} | "
+        f"merges={len(merges):,} | "
+        f"vocab_path={config.vocab_path} | "
+        f"merges_path={config.merges_path}"
+    )
 
 
 if __name__ == "__main__":

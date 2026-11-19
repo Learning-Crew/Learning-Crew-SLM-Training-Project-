@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 @dataclass
 class PretrainDatasetConfig:
@@ -8,21 +9,19 @@ class PretrainDatasetConfig:
     subset          데이터셋의 세부 구성
     encoding_type   텍스트 파일 인코딩 방식
     target_bytes    수집할 데이터의 목표 크기
-    min_chars       데이터에 포함할 텍스트의 최소 글자 수
-    max_chars       데이터에 포함할 텍스트의 최대 글자 수
     split_ratios    학습, 검증, 테스트 데이터 분할 비율
     """
 
     # 데이터셋 설정
-    dataset_name: str = "HuggingFaceFW/fineweb-edu"
-    subset: str = "sample-10BT"
+    dataset_name: str = "parquet"
+    data_files: str = "D:/Deeplearning/data/fineweb-edu/sample/10BT/*.parquet"
+    preprocessed_dir: str = "~/preprocessed"
     encoding_type: str = "utf-8"
 
     # 데이터 수집 및 전처리 설정
-    target_bytes: int = 2 * 1024 ** 3    # 2GB
     chunk_bytes: int  = 15 * 1024 ** 3  # 15GB
-    min_chars: int = 100
-    max_chars: int = 100_000
+    
+    
 
     # 데이터 분할 비율 (ex) Train 90%, Validation 5%, Test 5%))
     split_ratios: tuple[float, float, float] = (0.90, 0.05, 0.05)
@@ -48,15 +47,19 @@ class PretrainDatasetConfig:
 class TokenizerConfig:
     vocab_size: int = 32768
     base_vocab_size: int = 256
+    
+    train_max_bytes: int = 500 * 1024 ** 2  # tokenizer train 500MB
+    train_sample_seed: int = 261119
 
-    vocab_path: str = "tokenizer/vocab.json"
-    merges_path: str = "tokenizer/merges.json"
+    vocab_path: str = "~/tokenizer/vocab.json"
+    merges_path: str = "~/tokenizer/merges.json"
     
     pad_token: str = "[PAD]"
     bos_token: str = "[BOS]"
     eos_token: str = "[EOS]"
     cls_token: str = "[CLS]"
 
-@dataclass
-class PickyConfig:
-    ios_threshold: float = 0.8 
+    def __post_init__(self):
+        self.vocab_path = str(Path(self.vocab_path).expanduser())
+        self.merges_path = str(Path(self.merges_path).expanduser())
+

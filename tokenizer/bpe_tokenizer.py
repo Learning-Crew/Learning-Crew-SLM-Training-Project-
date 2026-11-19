@@ -1,8 +1,9 @@
 
 import json
+from operator import index as integer_index
+from loguru import logger
 import re
 
-from pathlib import Path
 from functools import lru_cache
 
 from configs.tokenizer_config import TokenizerConfig, PretrainDatasetConfig
@@ -11,18 +12,11 @@ class BPETokenizer:
 
     def __init__(
         self,
-        config: TokenizerConfig | None = None,
-        dataset_config: PretrainDatasetConfig | None = None,
+        config: TokenizerConfig,
+        dataset_config: PretrainDatasetConfig,
     ):
-        self.config = config if config is not None else TokenizerConfig()
-        self.dataset_config = (
-            dataset_config
-            if dataset_config is not None
-            else PretrainDatasetConfig()
-        )
-
-        config = self.config
-        dataset_config = self.dataset_config
+        self.config = config
+        self.dataset_config = dataset_config
 
         with open(config.vocab_path, "r", encoding=dataset_config.encoding_type) as f:
             vocab_data = json.load(f)
@@ -129,6 +123,11 @@ class BPETokenizer:
         text_bytes = bytearray()
 
         for token_id in token_ids:
+            
+            try:
+                token_id = integer_index(token_id)
+            except TypeError as error:
+                raise TypeError("token_ids에는 정수 ID만 사용할 수 있습니다.") from error
             if token_id in self.id_to_special:
                 if not skip_special_tokens:
                     token = self.id_to_special[token_id]
@@ -143,24 +142,24 @@ class BPETokenizer:
 
         return text_bytes.decode(self.dataset_config.encoding_type, errors=errors)
 
-"""
-if __name__ == "__main__":
 
-    tokenizer = BPETokenizer()
+def main():
+    config = TokenizerConfig()
+    tokenizer = BPETokenizer(config, PretrainDatasetConfig())
 
-    text = "Hello world! I am learning BPE."
-
+    text = "Deep learning classes are fun, but challenging."
     token_ids = tokenizer.encode(text)
     decoded = tokenizer.decode(token_ids)
 
-    print("Original:", repr(text))
-    print("Token IDs:", token_ids)
-    print("Decoded:", repr(decoded))
+    logger.info(
+        f"Input: {text!r}\n"
+        f"Token IDs: {token_ids}\n"
+        f"Output: {decoded!r}\n"
+    )
+    if text != decoded:
+        raise RuntimeError(f"Round-trip mismatch: {text!r} != {decoded!r}")
+    logger.success("Round-trip test passed!")
 
-    print("Token count:", len(token_ids))
-    print("Vocabulary size:", tokenizer.vocab_size)
 
-    assert text == decoded
-
-    print("Round-trip test passed!")
-"""
+if __name__ == "__main__":
+    main()

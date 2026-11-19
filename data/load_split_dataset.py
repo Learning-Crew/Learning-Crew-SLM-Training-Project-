@@ -1,9 +1,11 @@
 
 import json
+import re
 import hashlib
 import unicodedata
 import sqlite3
 
+from loguru import logger
 from pathlib import Path
 from contextlib import ExitStack, closing
 from concurrent.futures import ProcessPoolExecutor
@@ -49,12 +51,11 @@ def assign_split(
 
 
 
-def preprocess_document(document, min_chars, encoding_type):
+def preprocess_document(document, encoding_type):
 
     row = {
         "id": document.get("id"),
         "text": document.get("text"),
-        "score": document.get("score")
     }
 
     text = row["text"]
@@ -64,7 +65,7 @@ def preprocess_document(document, min_chars, encoding_type):
 
     text = clean_text(text)
 
-    if not text.strip() or len(text.strip()) < min_chars:
+    if not text.strip():
         return None
 
     text_bytes = text.encode(encoding_type)
@@ -80,19 +81,16 @@ def preprocess_dataset(dataset, config):
 
     worker = partial(
         preprocess_document,
-        min_chars=config.min_chars,
         encoding_type=config.encoding_type
     )
 
     documents = iter(dataset)
 
     with ProcessPoolExecutor(
-        max_workers=NUM_WORKERS
+        max_workers=NUM_WORKERS,
     ) as executor:
 
         while True:
-
-            # 문서 128개씩 가져오기
             batch = list(
                 islice(documents, BATCH_SIZE)
             )
@@ -114,6 +112,20 @@ def preprocess_dataset(dataset, config):
 
 
 
+def remove_stale_shards(output_dir: Path, last_chunk_index: int) -> int:
+    output_dir = output_dir.resolve()
+    removed = 0
+    for path in output_dir.iterdir():
+        match = re.fullmatch(r"(?:train|valid|test)_([0-9]+)\.json", path.name)
+        if match is None or int(match.group(1)) <= last_chunk_index:
+            continue
+        
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+            removed += 1
+    return removed
+
+
 def load_fineweb(config: PretrainDatasetConfig):
 
     split_ratios = {
@@ -124,12 +136,15 @@ def load_fineweb(config: PretrainDatasetConfig):
 
     dataset = load_dataset(
         config.dataset_name,
-        name=config.subset,
+        data_files=config.data_files,
         split="train",
         streaming=True
     )
 
-    root_path = Path(__file__).resolve().parent
+    
+    root_path = Path(config.preprocessed_dir).expanduser()
+    root_path.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Preprocessing output directory: {root_path}")
     db_path = root_path / "seen_hashes.db"
     total_bytes = 0
     total_docs = 0
@@ -182,10 +197,9 @@ def load_fineweb(config: PretrainDatasetConfig):
 
                 file_stack.close()
 
-                print(
-                    f"\nChunk {chunk_index:03d} completed: "
-                    f"{chunk_bytes / 1024**3:.2f} GiB",
-                    flush=True
+                logger.info(
+                    f"Chunk {chunk_index:03d} completed: "
+                    f"{chunk_bytes / 1024**2:.2f} MiB",
                 )
 
                 chunk_index += 1
@@ -205,7 +219,7 @@ def load_fineweb(config: PretrainDatasetConfig):
                     out.write("[\n")
                     outputs[split] = out
 
-                print(f"\nStart chunk {chunk_index:03d}", flush=True)
+                logger.info(f"Start chunk {chunk_index:03d}")
 
             split = assign_split(text_hash, split_ratios)
             out = outputs[split]
@@ -225,12 +239,11 @@ def load_fineweb(config: PretrainDatasetConfig):
             if total_docs % 10000 == 0:
                 conn.commit()
 
-                print(
+                logger.info(
                     f"Chunk {chunk_index:03d}: "
-                    f"{chunk_bytes / 1024**3:.2f} / 15 GiB | "
+                    f"{chunk_bytes / 1024**3:.2f} / {config.chunk_bytes / 1024**3:.2f} GiB | "
                     f"Total: {total_bytes / 1024**3:.2f} GiB | "
                     f"Documents: {total_docs:,}",
-                    flush=True
                 )
 
         for out in outputs.values():
@@ -239,11 +252,17 @@ def load_fineweb(config: PretrainDatasetConfig):
         file_stack.close()
         conn.commit()
 
-    print(
-        f"\nfinish load dataset: "
-        f"{total_bytes / 1024**3:.2f} GiB"
-        f"total documents: {total_docs:,}"
-        f"split counts: {counts}"
+    
+    
+    last_chunk_index = chunk_index if total_docs > 0 else -1
+    removed = remove_stale_shards(root_path, last_chunk_index)
+    logger.info(f"Removed stale shard files: {removed}")
+
+    logger.success(
+        f"Preprocessing completed | "
+        f"size={total_bytes / 1024**2:.2f} MiB | "
+        f"documents={total_docs:,} | "
+        f"splits={counts}"
     )
 
 
