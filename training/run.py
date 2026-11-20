@@ -1,5 +1,7 @@
 import json
 import logging
+import random
+import numpy as np
 from dataclasses import asdict, replace
 from math import exp, isfinite
 from pathlib import Path
@@ -28,8 +30,16 @@ from configs.tokenizer_config import (
 logger = logging.getLogger(__name__)
 SUBSET_FRACTION = 0.015
 SUBSET_SEED = 42
+# 교수님이 제공한 재현성 코드
+def set_seed(seed: int):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
-
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
 def select_subset(dataset: Dataset, split: str) -> Subset:
     #1.5%를 정수 연산으로 내림하고 데이터 전체를 읽지 않고 인덱스만 뽑기
     count = len(dataset) * 15 // 1000
@@ -115,7 +125,7 @@ def main(config: DictConfig) -> None:
     if configured_steps is not None:
         training_values["max_steps"] = configured_steps
     training_config = TrainingConfig(**training_values)
-    torch.manual_seed(training_config.seed)  #후보마다 같은 초기 가중치에서 시작하도록!
+    set_seed(training_config.seed)  #후보마다 같은 초기 가중치에서 시작하도록! 교수님 제공 코드로 변경
 
     smoke = config.factory is None
     if smoke:
@@ -139,10 +149,22 @@ def main(config: DictConfig) -> None:
         raise ValueError("train과 validation 데이터에 아무것도 없어요!")
 
     if use_subset or configured_steps is None:
-        batch_size = training_config.batch_size
-        #실제 데이터 탐색은 마지막 작은 배치까지 정확히 한 번만 보기
-        steps = 20 if smoke else (len(train_data) + batch_size - 1) // batch_size
-        training_config = replace(training_config, max_steps=steps)
+        if smoke:
+            steps = 20
+        else:
+            effective_batch_size = (
+                training_config.batch_size
+                * training_config.gradient_accumulation_steps
+            )
+
+            steps = (
+                len(train_data) + effective_batch_size - 1
+            ) // effective_batch_size
+
+        training_config = replace(
+            training_config,
+            max_steps=steps,
+        )
 
     output_dir = Path(hydra_config.runtime.output_dir)
     checkpoint_dir = output_dir / "checkpoints"
