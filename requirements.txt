@@ -5,3 +5,4 @@ tokenizers
 tqdm
 pyyaml
 hydra-core==1.4.0rc3
+ijson
