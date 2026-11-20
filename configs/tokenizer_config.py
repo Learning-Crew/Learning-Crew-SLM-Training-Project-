@@ -51,8 +51,8 @@ class TokenizerConfig:
     train_max_bytes: int = 500 * 1024 ** 2  # tokenizer train 500MB
     train_sample_seed: int = 261119
 
-    vocab_path: str = "~/tokenizer/vocab.json"
-    merges_path: str = "~/tokenizer/merges.json"
+    vocab_path: str = "tokenizer/vocab.json"
+    merges_path: str = "tokenizer/merges.json"
     
     pad_token: str = "[PAD]"
     bos_token: str = "[BOS]"

@@ -229,3 +229,5 @@ __marimo__/
 #로컬 학습 데이터
 data/*.jsonl
 data/*.json
+tokenizer/*.json
+e2e_test_data/*.json

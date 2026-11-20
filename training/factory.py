@@ -2,14 +2,18 @@
 from configs.model_config import ModelConfig
 from configs.tokenizer_config import PretrainDatasetConfig, TokenizerConfig
 
-from data.tokenized_dataset import TokenizedDataset
-
 from tokenizer.bpe_tokenizer import BPETokenizer
 
 from model.gpt import GPTModel
 
-from itertools import islice
-from datasets import load_dataset
+from pathlib import Path
+
+from data.tokenized_dataset import (
+    TokenizedDataset,
+    build_tokenized_file,
+)
+
+from data.load_preprocessed_data import load_preprocessed_data
 
 
 
@@ -25,38 +29,56 @@ def build_experiment(
         dataset_config=dataset_config,
     )
 
-    #실제 데이터 연결 전에 작은 샘플로 테스트
-    #로컬 FineWeb-Edu JSONL 데이터에서 일부 문서 읽기
-    train_stream = load_dataset(
-    "json",
-    data_files="data/train.jsonl",
-    split="train",
-    streaming=True
-    )
+    # 전처리된 FineWeb-Edu 데이터 경로
+    preprocessed_dir = Path(
+        dataset_config.preprocessed_dir
+    ).expanduser()
 
-    validation_stream = load_dataset(
-        "json",
-        data_files="data/valid.jsonl",
-        split="train",
-        streaming=True
-    )
+    # 토큰화 결과를 저장할 디렉터리
+    tokenized_dir = preprocessed_dir / "tokenized"
+    tokenized_dir.mkdir(parents=True, exist_ok=True)
 
-    #전체 데이터 대신 일부 문서만 사용
-    train_documents = list(islice(train_stream, 20))
-    validation_documents = list(islice(validation_stream, 5))
+    train_token_file = tokenized_dir / "train.bin"
+    validation_token_file = tokenized_dir / "valid.bin"
 
-    #텍스트를 토큰 ID로 변환하고 입력과 정답 생성
+    # Train 데이터 토큰화 및 바이너리 저장
+    if not train_token_file.exists():
+        train_token_count = build_tokenized_file(
+            documents=load_preprocessed_data("train", dataset_config),
+            tokenizer=tokenizer,
+            output_path=train_token_file,
+        )
+    else:
+        train_token_count = train_token_file.stat().st_size // 2
+
+    # Validation 데이터 토큰화 및 바이너리 저장
+    if not validation_token_file.exists():
+        validation_token_count = build_tokenized_file(
+            documents=load_preprocessed_data("valid", dataset_config),
+            tokenizer=tokenizer,
+            output_path=validation_token_file,
+        )
+    else:
+        validation_token_count = validation_token_file.stat().st_size // 2
+
+    # 디스크 기반 Dataset 생성
     train_data = TokenizedDataset(
-        documents=train_documents,
-        tokenizer=tokenizer,
+        token_file=train_token_file,
+        token_count=train_token_count,
         seq_len=model_config.max_seq_len,
     )
 
     validation_data = TokenizedDataset(
-        documents=validation_documents,
-        tokenizer=tokenizer,
+        token_file=validation_token_file,
+        token_count=validation_token_count,
         seq_len=model_config.max_seq_len,
     )
 
+    # 데이터 규모 확인
+    print(f"Train tokens: {train_token_count:,}")
+    print(f"Validation tokens: {validation_token_count:,}")
+    print(f"Train samples: {len(train_data):,}")
+    print(f"Validation samples: {len(validation_data):,}")
+
     #Trainer에서 사용할 모델, 데이터, 데이터 식별자 반환
-    return model, train_data, validation_data, "fineweb-edu-stream-test-v1"
+    return model, train_data, validation_data, "fineweb-edu-preprocessed-v1"
