@@ -7,6 +7,7 @@ from math import exp, isfinite
 from pathlib import Path
 from random import Random
 from shutil import copyfile
+from tqdm import tqdm
 
 import hydra
 import torch
@@ -69,12 +70,28 @@ def evaluate(model: nn.Module, dataset: Dataset, batch_size: int, device: str) -
     model.eval()
     loss_sum = 0.0
     token_count = 0
-    for inputs, targets in DataLoader(dataset, batch_size=batch_size):
+    for inputs, targets in tqdm(
+        DataLoader(dataset, batch_size=batch_size),
+        desc="Validation",
+        unit="batch"
+    ):
         targets = targets.to(device)
-        logits = model(inputs.to(device))
-        loss_sum += F.cross_entropy(
-            logits.flatten(0, 1), targets.flatten(), reduction="sum"
-        ).item()
+        with torch.autocast(
+            device_type=torch.device(device).type,
+            dtype=torch.bfloat16,
+            enabled=(
+                torch.device(device).type == "cuda"
+                and torch.cuda.is_bf16_supported()
+            ),
+        ):
+            logits = model(inputs.to(device))
+            loss = F.cross_entropy(
+                logits.flatten(0, 1),
+                targets.flatten(),
+                reduction="sum",
+            )
+
+        loss_sum += loss.item()
         token_count += targets.numel()
     if token_count == 0:
         raise ValueError("검증할 토큰이 없습니다.")

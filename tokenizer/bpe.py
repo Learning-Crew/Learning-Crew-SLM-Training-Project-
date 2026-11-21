@@ -3,7 +3,9 @@
 import json
 import re
 import heapq
+import hydra
 
+from omegaconf import DictConfig, OmegaConf
 from array import array
 from pathlib import Path
 from itertools import islice
@@ -290,8 +292,21 @@ def train_bpe(
     )
 
 
-if __name__ == "__main__":
-    tokenizer_config = TokenizerConfig()
-    dataset_config = PretrainDatasetConfig()
+@hydra.main(
+    version_base=None,
+    config_path="../configs",
+    config_name="experiment",
+)
+def main(config: DictConfig) -> None:
+    tokenizer_config = TokenizerConfig(
+        **OmegaConf.to_container(config.tokenizer, resolve=True)
+    )
+    dataset_config = PretrainDatasetConfig(
+        **OmegaConf.to_container(config.dataset, resolve=True)
+    )
 
     train_bpe(tokenizer_config, dataset_config)
+
+
+if __name__ == "__main__":
+    main()

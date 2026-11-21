@@ -4,7 +4,9 @@ import re
 import hashlib
 import unicodedata
 import sqlite3
+import hydra
 
+from omegaconf import DictConfig, OmegaConf
 from loguru import logger
 from pathlib import Path
 from contextlib import ExitStack, closing
@@ -126,7 +128,7 @@ def remove_stale_shards(output_dir: Path, last_chunk_index: int) -> int:
     return removed
 
 
-def load_fineweb(config: PretrainDatasetConfig):
+def load_fineweb(config: PretrainDatasetConfig, max_documents: int | None = None):
 
     split_ratios = {
         "train": config.split_ratios[0],
@@ -140,7 +142,9 @@ def load_fineweb(config: PretrainDatasetConfig):
         split="train",
         streaming=True
     )
-
+    if max_documents is not None:
+        dataset = dataset.take(max_documents)
+        logger.info(f"테스트 모드: 최대 {max_documents:,}개 원본 문서 처리")
     
     root_path = Path(config.preprocessed_dir).expanduser()
     root_path.mkdir(parents=True, exist_ok=True)
@@ -267,6 +271,22 @@ def load_fineweb(config: PretrainDatasetConfig):
 
 
 
+@hydra.main(
+    version_base=None,
+    config_path="../configs",
+    config_name="experiment",
+)
+def main(config: DictConfig) -> None:
+    dataset_config = PretrainDatasetConfig(
+        **OmegaConf.to_container(
+            config.dataset,
+            resolve=True,
+        )
+    )
+
+    load_fineweb(dataset_config)
+
+
 if __name__ == "__main__":
-    config = PretrainDatasetConfig()
-    load_fineweb(config)
+    main()
+

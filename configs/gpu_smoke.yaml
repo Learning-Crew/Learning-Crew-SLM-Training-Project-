@@ -1,0 +1,36 @@
+
+# 기존 experiment.yaml 설정을 상속
+defaults:
+  - experiment
+  - _self_
+
+# 테스트용 전처리 데이터
+dataset:
+  preprocessed_dir: ~/preprocessed_test
+
+# 테스트용 BPE 토크나이저
+tokenizer:
+  vocab_size: 1024
+  vocab_path: ~/tokenizer_test/vocab.json
+  merges_path: ~/tokenizer_test/merges.json
+
+# 기존 Transformer 구조 유지
+model:
+  vocab_size: 1024
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  max_seq_len: 1024
+  intermediate_size: 3072
+  attention_backend: naive
+
+# GPU 학습 테스트
+training:
+  batch_size: 2
+  gradient_accumulation_steps: 1
+  max_steps: 5
+  checkpoint_every: 5
+  log_every: 1
+
+device: cuda
+subset: false

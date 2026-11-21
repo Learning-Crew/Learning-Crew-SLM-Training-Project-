@@ -2,17 +2,17 @@
 #Hydra 설정 파일입니다!
 dataset:
   dataset_name: parquet
-  data_files: "D:/Deeplearning/data/fineweb-edu/sample/10BT/*.parquet"
+  data_files: "/data/fineweb-edu/sample/10BT/*.parquet"
   preprocessed_dir: "~/preprocessed"
   encoding_type: utf-8
-  chunk_bytes: 16106127360
+  chunk_bytes: 536870912
   split_ratios: [0.90, 0.05, 0.05]
   
 tokenizer:
   vocab_size: 32768
   base_vocab_size: 256
-  vocab_path: "~/tokenizer/vocab.json"
-  merges_path: "~/tokenizer/merges.json"
+  vocab_path: "/home/team3/tokenizer_32k/vocab.json"
+  merges_path: "/home/team3/tokenizer_32k/merges.json"
   pad_token: "[PAD]"
   bos_token: "[BOS]"
   eos_token: "[EOS]"
@@ -20,9 +20,9 @@ tokenizer:
   
 model:
   vocab_size: 32768
-  hidden_size: 768
-  num_layers: 12
-  num_heads: 12
+  hidden_size: 1024
+  num_layers: 21
+  num_heads: 16
   max_seq_len: 1024
   intermediate_size: 3072
   norm_eps: 1.0e-5
@@ -34,11 +34,11 @@ training:
   learning_rate: 0.0003
   batch_size: 8
   max_steps: null #합성 데이터는 20스텝, 팀 데이터는 기본 한 epoch
-  weight_decay: 0.1
+  weight_decay: 0.01
   seed: 42
 
   # Optimizer
-  adam_betas: [0.9, 0.95]
+  adam_betas: [0.9, 0.999]
   adam_eps: 1.0e-8
 
   # Scheduler
@@ -58,7 +58,7 @@ training:
   log_every: 100
 
 
-device: cpu   #이거 나중에 cuda로 변경해야할 것 같네요!
+device: cuda   #이거 나중에 cuda로 변경해야할 것 같네요!
 factory: training.factory.build_experiment  #팀 모델과 train, validation Dataset을 만드는 함수 경로 -> 하이퍼파라미터 탐색시에만 사용!!! (pretrain이 목적이기에 최종 학습에는 모두 학습할 수 있도록 해야해요!)
 data: {}
 subset: false  #자동으로 1.5%(교수님께서 1% ~ 2%를 보통 사용한다고 하셨습니다!), 단일 실행에서 재현할 때 true
