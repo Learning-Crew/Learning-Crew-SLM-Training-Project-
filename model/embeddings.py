@@ -26,14 +26,18 @@ class GPTEmbedding(nn.Module):
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_ids: torch.Tensor, *, position_offset: int = 0) -> torch.Tensor:
         if input_ids.ndim != 2:
             raise ValueError("input_ids must have shape (batch, sequence)")
         if input_ids.dtype != torch.long:
             raise TypeError("input_ids must use torch.long")
+        if isinstance(position_offset, bool) or not isinstance(position_offset, int):
+            raise TypeError("position_offset must be an integer")
+        if position_offset < 0:
+            raise ValueError("position_offset must be nonnegative")
         sequence_length = input_ids.shape[1]
-        if not 1 <= sequence_length <= self.max_seq_len:
+        if not 1 <= sequence_length <= self.max_seq_len - position_offset:
             raise ValueError("sequence length must be between 1 and max_seq_len")
         # (T, H) 위치 벡터가 배치의 각 문장에 동일하게 더해진다.
-        positions = torch.arange(sequence_length, device=input_ids.device)
+        positions = torch.arange(position_offset, position_offset + sequence_length, device=input_ids.device)
         return self.token_embedding(input_ids) + self.position_embedding(positions)

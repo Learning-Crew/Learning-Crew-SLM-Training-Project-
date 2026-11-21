@@ -57,3 +57,12 @@ class TransformerBlock(nn.Module):
         # 원래 입력을 더해 정보와 gradient가 흐르는 경로를 유지한다.
         hidden_states = hidden_states + self.attention(self.ln_1(hidden_states))
         return hidden_states + self.ffn(self.ln_2(hidden_states))
+
+    @torch.no_grad()
+    def forward_cached(self, hidden_states, past_key_value=None):
+        """Run the same residual block while retaining attention keys/values."""
+        attention_output, present = self.attention.forward_cached(
+            self.ln_1(hidden_states), past_key_value
+        )
+        hidden_states = hidden_states + attention_output
+        return hidden_states + self.ffn(self.ln_2(hidden_states)), present

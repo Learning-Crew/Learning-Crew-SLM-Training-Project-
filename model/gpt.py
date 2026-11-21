@@ -16,7 +16,7 @@ class GPTModel(nn.Module):
     """Decoder-only model with learned positions and a tied output head.
 
     Loss and token shifting are handled by training/data, not forward().
-    Dense, unpadded sequences only; no KV cache in this baseline.
+    Dense, unpadded sequences only; optional inference via forward_cached().
     max_seq_len must be retained alongside ModelConfig in checkpoints.
     """
 
@@ -59,3 +59,42 @@ class GPTModel(nn.Module):
         The training module owns checkpoint file I/O and optimizer state.
         """
         return {"config": asdict(self.config), "max_seq_len": self.max_seq_len}
+
+    @torch.no_grad()
+    def forward_cached(self, input_ids: torch.Tensor, past_key_values=None):
+        """Return (logits, cache) for prefill or single-token decoding.
+
+        Call eval() first. Use only newly appended IDs after prefill; reset
+        cache to None for a different prompt. No padding or context rollover.
+        The ordinary forward() and checkpoint parameter names are unchanged.
+        """
+        if self.training:
+            raise RuntimeError("KV cache requires eval(); use forward() for training")
+        if input_ids.ndim != 2:
+            raise ValueError("input_ids must have shape (B, T)")
+        offset = 0
+        if past_key_values is not None:
+            if not isinstance(past_key_values, (tuple, list)) or len(past_key_values) != len(self.blocks):
+                raise ValueError("cache must contain one key/value pair per layer")
+            lengths = []
+            for pair in past_key_values:
+                if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                    raise ValueError("each layer cache must contain key and value")
+                if any(not isinstance(t, torch.Tensor) or t.ndim != 4 for t in pair):
+                    raise ValueError("cache tensors must be four-dimensional")
+                if pair[0].shape != pair[1].shape or pair[0].shape[2] < 1:
+                    raise ValueError("cache key/value shapes must match and be nonempty")
+                lengths.append(pair[0].shape[2])
+            if len(set(lengths)) != 1:
+                raise ValueError("all layer caches must have the same sequence length")
+            offset = lengths[0]
+            if input_ids.shape[1] != 1:
+                raise ValueError("pass exactly one new token after prefill")
+        hidden_states = self.embedding(input_ids, position_offset=offset)
+        present = []
+        for index, block in enumerate(self.blocks):
+            past = None if past_key_values is None else past_key_values[index]
+            hidden_states, layer_cache = block.forward_cached(hidden_states, past)
+            present.append(layer_cache)
+        logits = F.linear(self.final_norm(hidden_states), self.embedding.token_embedding.weight)
+        return logits, tuple(present)

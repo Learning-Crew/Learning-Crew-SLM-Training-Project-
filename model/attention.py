@@ -54,7 +54,7 @@ class CausalSelfAttention(nn.Module):
         context = context.transpose(1, 2).contiguous().reshape(batch, length, hidden)
         return self.out_proj(context)
 
-    def _flash_attention(self, query, key, value):
+    def _flash_attention(self, query, key, value, *, is_causal=True):
         #PyTorch SDPA 안의 FlashAttention-2 커널 사용
         if not query.is_cuda:
             raise RuntimeError("flash_attention_2는 CUDA GPU에서만 사용할 수 있어요!")
@@ -65,7 +65,7 @@ class CausalSelfAttention(nn.Module):
             query, key, value = (x.to(torch.bfloat16) for x in (query, key, value))
         #FLASH_ATTENTION만 고정 해두었어요! (SDPA안에서 다른 거 불러오지 않도록 하길래 저도 비슷하게 구현했습니다!)
         with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
-            context = F.scaled_dot_product_attention(query, key, value, is_causal=True)
+            context = F.scaled_dot_product_attention(query, key, value, is_causal=is_causal)
         return context.to(input_dtype)
 
     def _naive_attention(self, query, key, value, length):
@@ -80,3 +80,58 @@ class CausalSelfAttention(nn.Module):
         scores = scores.masked_fill(future, float("-inf"))
         weights = torch.softmax(scores, dim=-1).to(value.dtype)
         return weights @ value
+
+    @torch.no_grad()
+    def forward_cached(self, hidden_states, past_key_value=None):
+        """Inference-only prefill, then one new token per call.
+
+        Cache is (key, value), each shaped (B, heads, past_length, head_dim).
+        It belongs to one unchanged model, batch order and precision context.
+        """
+        if self.training:
+            raise RuntimeError("KV cache requires eval()")
+        if hidden_states.ndim != 3 or hidden_states.shape[-1] != self.hidden_size:
+            raise ValueError("hidden_states must have shape (B, T, H)")
+        batch, length, hidden = hidden_states.shape
+        if length < 1 or not hidden_states.is_floating_point():
+            raise ValueError("expected a nonempty floating-point sequence")
+        qkv = self.qkv(hidden_states).reshape(
+            batch, length, 3, self.num_heads, self.head_dim
+        ).permute(2, 0, 3, 1, 4)
+        query, key, value = qkv.unbind(0)
+        if past_key_value is not None:
+            if length != 1:
+                raise ValueError("cached decoding accepts exactly one new token")
+            if not isinstance(past_key_value, (tuple, list)) or len(past_key_value) != 2:
+                raise ValueError("cache must contain key and value")
+            past_key, past_value = past_key_value
+            for cached in (past_key, past_value):
+                if not isinstance(cached, torch.Tensor) or cached.ndim != 4:
+                    raise ValueError("cache tensors must have shape (B, heads, T, head_dim)")
+                if (cached.shape[0], cached.shape[1], cached.shape[3]) != (
+                    batch, self.num_heads, self.head_dim
+                ) or cached.shape[2] < 1:
+                    raise ValueError("cache batch/head dimensions or length are invalid")
+                if cached.device != key.device or cached.dtype != key.dtype:
+                    raise ValueError("cache device and dtype must match current projections")
+            if past_key.shape != past_value.shape:
+                raise ValueError("cached key and value shapes must match")
+            key = torch.cat((past_key, key), dim=2)
+            value = torch.cat((past_value, value), dim=2)
+        # A single newest query may attend to ALL cached keys. A rectangular
+        # is_causal=True mask would incorrectly align that query to position 0.
+        if self.attention_backend == "flash_attention_2":
+            context = self._flash_attention(
+                query, key, value, is_causal=past_key_value is None
+            )
+        elif past_key_value is None:
+            context = self._naive_attention(query, key, value, length)
+        else:
+            score_dtype = torch.float32 if query.dtype in (
+                torch.float16, torch.bfloat16
+            ) else query.dtype
+            scores = query.to(score_dtype) @ key.to(score_dtype).transpose(-2, -1)
+            weights = torch.softmax(scores / math.sqrt(self.head_dim), dim=-1)
+            context = weights.to(value.dtype) @ value
+        context = context.transpose(1, 2).contiguous().reshape(batch, length, hidden)
+        return self.out_proj(context), (key, value)
