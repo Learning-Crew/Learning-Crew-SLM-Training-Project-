@@ -37,6 +37,6 @@ python -m unittest benchmarks.test_compare_model -v
 python -m benchmarks.compare_model --cpu-self-check --source-revision "$(git rev-parse HEAD)" --output /tmp/slm-model-self-check.json
 ```
 
-CPU 모드는 naive를 naive와 비교하여 검증 코드 자체를 점검한다. FlashAttention 검증 결과로 해석하면 안 된다. AI 도움으로 작성했으며 실제 GPU 결과는 아직 없다.
+CPU 모드는 naive를 naive와 비교하여 검증 코드 자체를 점검한다. FlashAttention 검증 결과로 해석하면 안 된다. 실제 GPU 결과는 아직 없다.
 
 로컬 결과: PyTorch 2.15.0+cpu에서 비교 함수 테스트 3개 통과(동일 값, 작은 gradient 오류 탐지, NaN 탐지). 전체 GPT CPU 자체 검사도 통과했다. GPU 검증은 미실행이다.
