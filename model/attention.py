@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel #Pytorch 내장 Flash Attention 모듈
 
 from configs.model_config import ModelConfig
+from model.kv_cache import StaticLayerCache
 
 
 class CausalSelfAttention(nn.Module):
@@ -99,7 +100,15 @@ class CausalSelfAttention(nn.Module):
             batch, length, 3, self.num_heads, self.head_dim
         ).permute(2, 0, 3, 1, 4)
         query, key, value = qkv.unbind(0)
-        if past_key_value is not None:
+        static_cache = isinstance(past_key_value, StaticLayerCache)
+        has_past = past_key_value is not None and (
+            not static_cache or past_key_value.length > 0
+        )
+        if static_cache:
+            if has_past and length != 1:
+                raise ValueError("cached decoding accepts exactly one new token")
+            key, value = past_key_value.append(key, value)
+        elif past_key_value is not None:
             if length != 1:
                 raise ValueError("cached decoding accepts exactly one new token")
             if not isinstance(past_key_value, (tuple, list)) or len(past_key_value) != 2:
@@ -122,9 +131,9 @@ class CausalSelfAttention(nn.Module):
         # is_causal=True mask would incorrectly align that query to position 0.
         if self.attention_backend == "flash_attention_2":
             context = self._flash_attention(
-                query, key, value, is_causal=past_key_value is None
+                query, key, value, is_causal=not has_past
             )
-        elif past_key_value is None:
+        elif not has_past:
             context = self._naive_attention(query, key, value, length)
         else:
             score_dtype = torch.float32 if query.dtype in (

@@ -9,6 +9,7 @@ from torch.utils.checkpoint import checkpoint
 
 from configs.model_config import ModelConfig
 from model.embeddings import GPTEmbedding
+from model.kv_cache import StaticKVCache
 from model.transformer_block import TransformerBlock
 
 
@@ -61,13 +62,15 @@ class GPTModel(nn.Module):
         return {"config": asdict(self.config), "max_seq_len": self.max_seq_len}
 
     @torch.no_grad()
-    def forward_cached(self, input_ids: torch.Tensor, past_key_values=None):
+    def forward_cached(self, input_ids: torch.Tensor, past_key_values=None, *, last_logits_only=False):
         """Return (logits, cache) for prefill or single-token decoding.
 
         Call eval() first. Use only newly appended IDs after prefill; reset
         cache to None for a different prompt. No padding or context rollover.
         The ordinary forward() and checkpoint parameter names are unchanged.
         """
+        if isinstance(past_key_values, StaticKVCache):
+            return self._forward_static(input_ids, past_key_values, last_logits_only)
         if self.training:
             raise RuntimeError("KV cache requires eval(); use forward() for training")
         if input_ids.ndim != 2:
@@ -96,5 +99,42 @@ class GPTModel(nn.Module):
             past = None if past_key_values is None else past_key_values[index]
             hidden_states, layer_cache = block.forward_cached(hidden_states, past)
             present.append(layer_cache)
+        if last_logits_only:
+            hidden_states = hidden_states[:, -1:]
         logits = F.linear(self.final_norm(hidden_states), self.embedding.token_embedding.weight)
         return logits, tuple(present)
+
+    def create_static_cache(self, capacity=None):
+        """Reserve up to capacity tokens; allocate tensors lazily at prefill."""
+        capacity = self.max_seq_len if capacity is None else capacity
+        cache = StaticKVCache(len(self.blocks), capacity)
+        if capacity > self.max_seq_len:
+            raise ValueError("cache capacity exceeds model context length")
+        cache.owner = self
+        return cache
+
+    def _forward_static(self, input_ids, cache, last_logits_only):
+        if self.training:
+            raise RuntimeError("KV cache requires eval()")
+        if cache.owner is not self or len(cache.layers) != len(self.blocks):
+            raise ValueError("use create_static_cache() on this model")
+        offset = cache.length
+        if input_ids.ndim != 2 or input_ids.dtype != torch.long:
+            raise ValueError("input_ids must be a two-dimensional LongTensor")
+        length = input_ids.shape[1]
+        if length < 1 or (offset > 0 and length != 1):
+            raise ValueError("prefill a nonempty prompt, then pass one new token")
+        if offset + length > min(cache.capacity, self.max_seq_len):
+            raise ValueError("KV cache/context capacity exceeded")
+        try:
+            hidden_states = self.embedding(input_ids, position_offset=offset)
+            for block, layer_cache in zip(self.blocks, cache.layers):
+                hidden_states, _ = block.forward_cached(hidden_states, layer_cache)
+            if last_logits_only:
+                hidden_states = hidden_states[:, -1:]
+            logits = F.linear(self.final_norm(hidden_states), self.embedding.token_embedding.weight)
+        except Exception:
+            # A layer may already have written; never continue a partial request.
+            cache.reset()
+            raise
+        return logits, cache

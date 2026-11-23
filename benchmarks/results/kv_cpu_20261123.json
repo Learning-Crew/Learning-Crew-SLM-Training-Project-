@@ -1,0 +1,57 @@
+{
+  "settings": {
+    "device": "cpu",
+    "dtype": "float32",
+    "backend": "naive",
+    "hidden": 128,
+    "layers": 2,
+    "heads": 4,
+    "vocab": 1024,
+    "batch": 1,
+    "prompt": 64,
+    "decode": 32,
+    "repeats": 5,
+    "output": "benchmarks/results/kv_cpu_20261123.json"
+  },
+  "torch": "2.5.1+cpu",
+  "python": "3.12.14",
+  "gpu": null,
+  "seed": 42,
+  "threads": 1,
+  "measurement": "prefill + fixed-token decode",
+  "results": {
+    "full": {
+      "seconds": [
+        0.07446303400001852,
+        0.06523094099998161,
+        0.06656117900001846,
+        0.07466753899996093,
+        0.06929032999994433
+      ],
+      "median_seconds": 0.06929032999994433,
+      "peak_allocated_bytes": null
+    },
+    "dynamic": {
+      "seconds": [
+        0.02230129700001271,
+        0.020524468000076013,
+        0.020928793000052792,
+        0.0175816120000718,
+        0.01860258600004272
+      ],
+      "median_seconds": 0.020524468000076013,
+      "peak_allocated_bytes": null
+    },
+    "static": {
+      "seconds": [
+        0.022184382999967056,
+        0.022103173000004972,
+        0.018040382000094723,
+        0.017260402000033537,
+        0.0191139060000296
+      ],
+      "median_seconds": 0.0191139060000296,
+      "peak_allocated_bytes": null
+    }
+  }
+}
