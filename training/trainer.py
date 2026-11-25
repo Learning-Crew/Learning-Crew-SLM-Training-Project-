@@ -18,6 +18,26 @@ from training.checkpoint import load_checkpoint, save_checkpoint
 logger = logging.getLogger(__name__)
 
 
+def cleanup_old_checkpoints(
+    checkpoint_dir: str | Path,
+    keep_last: int = 3,
+) -> None:
+    """현재 실험의 최신 체크포인트만 유지한다."""
+    checkpoint_dir = Path(checkpoint_dir)
+
+    checkpoints = sorted(
+        checkpoint_dir.glob("step_*.pt"),
+        key=lambda path: int(path.stem.split("_")[1]),
+    )
+
+    # 최신 keep_last개를 제외한 이전 체크포인트 삭제
+    for old_checkpoint in checkpoints[:-keep_last]:
+        old_checkpoint.unlink()
+        logger.info(
+            "오래된 체크포인트 삭제: %s",
+            old_checkpoint,
+        )
+
 def train(
     model: nn.Module,
     dataset: Dataset[tuple[Tensor, Tensor]],
@@ -28,6 +48,9 @@ def train(
     dataset_id: str,
     checkpoint_dir: str | Path,
     resume_from: str | Path | None = None,
+    init_from: str | Path | None = None,
+    epoch_offset: int = 0,
+    previous_steps: int = 0,
 ) -> int:
 
     dataset_length = len(dataset)
@@ -93,6 +116,19 @@ def train(
         micro_batches_per_epoch + accumulation_steps - 1
     ) // accumulation_steps
 
+        # 기존 학습 재개와 추가 학습 초기화는 서로 다른 작업
+    if resume_from is not None and init_from is not None:
+        raise ValueError(
+            "resume_from과 init_from은 동시에 사용할 수 없습니다."
+        )
+
+    if epoch_offset < 0:
+        raise ValueError("epoch_offset은 0 이상이어야 합니다.")
+
+    if previous_steps < 0:
+        raise ValueError("previous_steps는 0 이상이어야 합니다.")
+
+    # 체크포인트 검증 및 학습 이력 관리
     run_metadata = {
         "model_config": asdict(model_config),
         "training_config": asdict(config),
@@ -100,6 +136,14 @@ def train(
         "dataset_length": dataset_length,
         "device": str(device),
     }
+
+    # 기존 체크포인트와의 호환성 유지
+    if epoch_offset != 0:
+        run_metadata["epoch_offset"] = epoch_offset
+
+    if previous_steps != 0:
+        run_metadata["previous_steps"] = previous_steps
+
     state = None if resume_from is None else load_checkpoint(resume_from, run_metadata)
     global_step = 0
     epoch = 0
@@ -121,6 +165,76 @@ def train(
         betas=config.adam_betas,
         eps=config.adam_eps,
         )
+    # 이전 사전학습 체크포인트에서 새로운 학습 단계 시작
+    if init_from is not None:
+        source = torch.load(
+            init_from,
+            map_location="cpu",
+            weights_only=True,
+        )
+
+        # 모델 및 데이터셋 호환성 검사
+        if source["model_config"] != asdict(model_config):
+            raise ValueError("기존 체크포인트와 모델 설정이 다릅니다.")
+
+        if source["dataset_id"] != dataset_id:
+            raise ValueError("기존 체크포인트와 데이터셋이 다릅니다.")
+
+        if source["dataset_length"] != dataset_length:
+            raise ValueError("기존 체크포인트와 데이터셋 크기가 다릅니다.")
+
+        # 기존 학습이 정상적으로 완료되었는지 확인
+        if source["global_step"] != source["training_config"]["max_steps"]:
+            raise ValueError("완료되지 않은 사전학습 체크포인트입니다.")
+
+        if source["global_step"] != previous_steps:
+            raise ValueError("previous_steps가 기존 학습 기록과 다릅니다.")
+
+        # Optimizer 상태에 영향을 주는 설정 검증
+        old_config = source["training_config"]
+
+        required_same = (
+            "batch_size",
+            "gradient_accumulation_steps",
+            "adam_betas",
+            "adam_eps",
+            "weight_decay",
+            "max_grad_norm",
+            "seed",
+        )
+
+        for field in required_same:
+            if old_config[field] != getattr(config, field):
+                raise ValueError(
+                    f"기존 학습과 설정 불일치: {field}"
+                )
+
+        # 기존 모델 가중치 및 AdamW 상태 복원
+        model.load_state_dict(source["model"])
+        optimizer.load_state_dict(source["optimizer"])
+
+        # 새로운 학습 단계의 초기 Learning Rate 설정
+        for group in optimizer.param_groups:
+            group["lr"] = config.learning_rate
+            group["initial_lr"] = config.learning_rate
+
+        # Dropout 등의 난수 상태 복원
+        torch.set_rng_state(source["cpu_rng_state"])
+
+        if device.type == "cuda":
+            torch.cuda.set_rng_state(
+                source["cuda_rng_state"],
+                device,
+            )
+
+        logger.info(
+            "추가 사전학습 초기화 완료: %s (이전 %d Steps)",
+            init_from,
+            previous_steps,
+        )
+
+        del source
+
     # Warmup + Cosine Learning Rate Scheduler 구현!
     def lr_lambda(step: int) -> float:
         warmup = min(config.warmup_steps, config.max_steps)
@@ -164,7 +278,7 @@ def train(
     generator = torch.Generator(device="cpu")
     while global_step < config.max_steps:
         # 같은 epoch에서는 같은 순서로 섞고, 재개할 배치부터 읽기
-        generator.manual_seed(config.seed + epoch)
+        generator.manual_seed(config.seed + epoch_offset + epoch)
         indices = torch.randperm(
             dataset_length,
             generator=generator,
@@ -260,10 +374,12 @@ def train(
 
             if global_step % config.log_every == 0 or global_step == config.max_steps:
                 logger.info(
-                    "step=%d loss=%.9g lr=%.9g",
+                    "step=%d/%d total_step=%d loss=%.9g lr=%.9g",
                     global_step,
+                    config.max_steps,
+                    previous_steps + global_step,
                     average_loss,
-                    learning_rate
+                    learning_rate,
                 )
 
             if global_step % config.checkpoint_every == 0 or global_step == config.max_steps:
@@ -282,6 +398,7 @@ def train(
                         "optimizer": optimizer.state_dict(),
                         "scheduler": scheduler.state_dict(),
                         "global_step": global_step,
+                        "total_completed_steps": previous_steps + global_step,
                         "next_epoch": saved_epoch,
                         "next_batch": saved_batch,
                         "cpu_rng_state": torch.get_rng_state(),
@@ -292,6 +409,13 @@ def train(
                         ),
                     },
                 )
+
+                # 새 체크포인트 저장 성공 후 최신 3개만 유지
+                cleanup_old_checkpoints(
+                    checkpoint_dir,
+                    keep_last=3,
+                )
+
 
             if global_step == config.max_steps:
                 break

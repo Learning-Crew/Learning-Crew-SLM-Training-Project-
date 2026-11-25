@@ -10,7 +10,7 @@ class TrainingConfig:
     batch_size                   한 번에 처리하는 데이터 개수
     max_steps                    최대 학습 업데이트 횟수
     weight_decay                 가중치 감소 계수
-    adam_betas                   AdamW의 모멘텀 계산 계수
+    adam_betas                   AdamW의 모멘텀a 계산 계수
     adam_eps                     AdamW의 수치 안정성을 위한 값
     warmup_steps                 학습률을 점진적으로 증가시키는 횟수
     min_lr                       최소 학습률

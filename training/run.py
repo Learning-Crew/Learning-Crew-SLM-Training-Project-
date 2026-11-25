@@ -127,8 +127,13 @@ class SweepSummary(Callback):
 def main(config: DictConfig) -> None:
     hydra_config = HydraConfig.get()
     multirun = hydra_config.mode == RunMode.MULTIRUN
-    if multirun and config.resume_from is not None:
-        raise ValueError("resume_from은 단일 실행에서만 사용할 수 있습니다.")
+    if multirun and (
+        config.resume_from is not None
+        or OmegaConf.select(config, "init_from") is not None
+    ):
+        raise ValueError(
+            "resume_from과 init_from은 단일 실행에서만 사용할 수 있습니다."
+        )
     dataset_config = PretrainDatasetConfig(
         **OmegaConf.to_container(config.dataset, resolve=True)
     )
@@ -185,11 +190,36 @@ def main(config: DictConfig) -> None:
 
     output_dir = Path(hydra_config.runtime.output_dir)
     checkpoint_dir = output_dir / "checkpoints"
-    resume_from = Path(to_absolute_path(config.resume_from)) if config.resume_from else None
+    resume_from = (
+        Path(to_absolute_path(config.resume_from))
+        if config.resume_from else None
+    )
+
+    init_from_value = OmegaConf.select(config, "init_from")
+    init_from = (
+        Path(to_absolute_path(init_from_value))
+        if init_from_value is not None else None
+    )
+
+    epoch_offset = OmegaConf.select(
+        config, "epoch_offset", default=0
+    )
+    previous_steps = OmegaConf.select(
+        config, "previous_steps", default=0
+    )
+
     completed_steps = train(
-        model, train_data, model_config, training_config,
-        device=config.device, dataset_id=dataset_id, checkpoint_dir=checkpoint_dir,
+        model,
+        train_data,
+        model_config,
+        training_config,
+        device=config.device,
+        dataset_id=dataset_id,
+        checkpoint_dir=checkpoint_dir,
         resume_from=resume_from,
+        init_from=init_from,
+        epoch_offset=epoch_offset,
+        previous_steps=previous_steps,
     )
 
     final_checkpoint = checkpoint_dir / f"step_{completed_steps}.pt"
@@ -212,6 +242,9 @@ def main(config: DictConfig) -> None:
         "source_samples": original_counts,
         "samples": {"train": len(train_data), "validation": len(validation_data)},
         "completed_steps": completed_steps,
+        "previous_steps": previous_steps,
+        "total_completed_steps": previous_steps + completed_steps,
+        "epoch_offset": epoch_offset,
         "validation_loss": validation_loss,
         "perplexity": exp(validation_loss),
         "checkpoint": str(final_checkpoint.relative_to(output_dir)),
