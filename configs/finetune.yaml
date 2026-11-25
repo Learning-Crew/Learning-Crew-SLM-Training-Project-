@@ -1,0 +1,51 @@
+pretrained_checkpoint: /home/team3/models/pretrained_300m_1.5ep.pt
+
+dataset:
+  path: /data/finetuning-dataset/train.parquet
+  val_ratio: 0.05
+  split_seed: 42
+  shuffle_choices: true
+
+tokenizer:
+  vocab_size: 32768
+  vocab_path: /home/team3/tokenizer_32k/vocab.json
+  merges_path: /home/team3/tokenizer_32k/merges.json
+
+training:
+  epochs: 3
+  batch_size: 8
+  gradient_accumulation_steps: 4
+
+  learning_rate: 1.0e-5
+  min_lr: 1.0e-6
+  weight_decay: 0.01
+
+  context_weight: 0.1
+  label_smoothing: 0.05
+
+  choice_weight: 0.1
+  choice_microbatch: 2
+
+  adam_betas: [0.9, 0.999]
+  adam_eps: 1.0e-8
+
+  warmup_ratio: 0.03
+  max_grad_norm: 1.0
+
+  mixed_precision: bf16
+  gradient_checkpointing: false
+
+  eval_every: 500
+  log_every: 50
+  seed: 42
+
+evaluation:
+  batch_size: 8
+
+device: cuda
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/finetune/${now:%Y-%m-%d/%H-%M-%S-%f}
